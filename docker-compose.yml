@@ -1,0 +1,60 @@
+services:
+  # Streamlit UI for configuration management (starts first, initializes config.json)
+  ui:
+    build: ./ui
+    container_name: ${UI_CONTAINER_NAME:-mcpo-ui}
+    ports:
+      - "${UI_PORT:-8501}:8501"
+    volumes:
+      - ./config:/config
+    environment:
+      - MCPO_BASE_URL=${MCPO_BASE_URL}
+      - MCPO_PORT=${MCPO_PORT:-8000}
+    restart: unless-stopped
+    networks:
+      - mcpo-network
+    healthcheck:
+      test: ["CMD", "test", "-f", "/config/config.json"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+
+  # MCPO server (with uvx, npx, and Docker support)
+  mcpo:
+    build: ./mcpo
+    container_name: ${MCPO_CONTAINER_NAME:-mcpo-server}
+    ports:
+      - "${MCPO_PORT:-8000}:8000"
+    volumes:
+      - ./config:/config
+      - /var/run/docker.sock:/var/run/docker.sock  # Enable Docker commands
+    command: ["--config", "/config/config.json", "--port", "8000"]
+    # Alternative: Use mcpo's built-in hot-reload (currently buggy - doesn't properly remove deleted servers)
+    # command: ["--config", "/config/config.json", "--hot-reload", "--port", "8000"]
+    # If using --hot-reload, comment out the watcher service below
+    restart: unless-stopped
+    networks:
+      - mcpo-network
+    depends_on:
+      ui:
+        condition: service_healthy
+
+  # Config file watcher - automatically restarts mcpo when config.json changes
+  # Remove this service if using --hot-reload flag above
+  watcher:
+    build: ./watcher
+    container_name: ${WATCHER_CONTAINER_NAME:-mcpo-watcher}
+    volumes:
+      - ./config:/config:ro  # Read-only access to config
+      - /var/run/docker.sock:/var/run/docker.sock  # Access to restart containers
+    environment:
+      - MCPO_CONTAINER=${MCPO_CONTAINER_NAME:-mcpo-server}
+    restart: unless-stopped
+    networks:
+      - mcpo-network
+    depends_on:
+      - mcpo
+
+networks:
+  mcpo-network:
+    driver: bridge
