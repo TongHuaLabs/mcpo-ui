@@ -1,0 +1,18 @@
+:80 {
+	# Basic auth (optional - only if UI_USERNAME and UI_PASSWORD_HASH are set)
+	@auth_enabled {
+		expression {env.UI_USERNAME} != "" && {env.UI_PASSWORD_HASH} != ""
+	}
+
+	handle @auth_enabled {
+		basic_auth {
+			{env.UI_USERNAME} {env.UI_PASSWORD_HASH}
+		}
+		reverse_proxy localhost:8501
+	}
+
+	# No auth - direct proxy
+	handle {
+		reverse_proxy localhost:8501
+	}
+}

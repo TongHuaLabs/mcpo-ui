@@ -6,7 +6,7 @@ services:
     # If you are using Coolify to deploy this application, please comment the ports section below.
     # It is easier if we let Coolify manage the network for us
     ports:
-      - "${UI_PORT:-8501}:8501"
+      - "${UI_PORT:-80}:80"
       - "${MCPO_PORT:-8000}:8000"
     volumes:
       - ./config:/config
@@ -14,8 +14,10 @@ services:
     environment:
       - MCPO_API_KEY=${MCPO_API_KEY}
       - MCPO_BASE_URL=${MCPO_BASE_URL}
+      - UI_USERNAME=${UI_USERNAME}
+      - UI_PASSWORD_HASH=${UI_PASSWORD_HASH}
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:8501/ && curl -f http://localhost:8000/"]
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:80/ && curl -f http://localhost:8000/"]
       interval: 30s
       timeout: 10s
       retries: 3

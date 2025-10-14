@@ -5,6 +5,7 @@ CONFIG_DIR="/config"
 CONFIG_FILE="$CONFIG_DIR/config.json"
 MCPO_PID=""
 UI_PID=""
+CADDY_PID=""
 WATCHER_PID=""
 
 # Validate required environment variables
@@ -16,6 +17,7 @@ fi
 # Graceful shutdown handler
 shutdown() {
     echo "🛑 Shutting down gracefully..."
+    [ ! -z "$CADDY_PID" ] && kill "$CADDY_PID" 2>/dev/null || true
     [ ! -z "$MCPO_PID" ] && kill "$MCPO_PID" 2>/dev/null || true
     [ ! -z "$UI_PID" ] && kill "$UI_PID" 2>/dev/null || true
     [ ! -z "$WATCHER_PID" ] && kill "$WATCHER_PID" 2>/dev/null || true
@@ -47,14 +49,25 @@ restart_mcpo() {
     start_mcpo
 }
 
-# Start Streamlit UI in background
+# Start Streamlit UI in background (on localhost only, Caddy will proxy)
 echo "🎨 Starting Streamlit UI..."
-streamlit run /app/app.py --server.port=8501 --server.address=0.0.0.0 --server.headless=true &
+streamlit run /app/app.py --server.port=8501 --server.address=127.0.0.1 --server.headless=true &
 UI_PID=$!
 echo "✅ UI started with PID $UI_PID"
 sleep 2  # Give UI time to start
 if ! kill -0 "$UI_PID" 2>/dev/null; then
     echo "❌ Failed to start UI"
+    exit 1
+fi
+
+# Start Caddy reverse proxy with optional basic auth
+echo "🌐 Starting Caddy reverse proxy..."
+caddy run --config /app/Caddyfile --adapter caddyfile 2>&1 &
+CADDY_PID=$!
+echo "✅ Caddy started with PID $CADDY_PID"
+sleep 1  # Give Caddy time to start
+if ! kill -0 "$CADDY_PID" 2>/dev/null; then
+    echo "❌ Failed to start Caddy"
     exit 1
 fi
 

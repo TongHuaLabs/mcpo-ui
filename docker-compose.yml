@@ -4,7 +4,7 @@ services:
     container_name: ${CONTAINER_NAME:-mcpo-ui}
     restart: unless-stopped
     ports:
-      - "${UI_PORT:-8501}:8501"
+      - "${UI_PORT:-80}:80"
       - "${MCPO_PORT:-8000}:8000"
     volumes:
       - ./config:/config
@@ -12,8 +12,10 @@ services:
     environment:
       - MCPO_API_KEY=${MCPO_API_KEY}
       - MCPO_BASE_URL=${MCPO_BASE_URL}
+      - UI_USERNAME=${UI_USERNAME}
+      - UI_PASSWORD_HASH=${UI_PASSWORD_HASH}
     healthcheck:
-      test: ["CMD", "sh", "-c", "curl -f http://localhost:8501/ && curl -f http://localhost:8000/"]
+      test: ["CMD", "sh", "-c", "curl -f http://localhost:80/ && curl -f http://localhost:8000/"]
       interval: 30s
       timeout: 10s
       retries: 3

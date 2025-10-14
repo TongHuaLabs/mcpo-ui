@@ -9,7 +9,7 @@ Web UI for managing [MCPO](https://github.com/open-webui/mcpo) (Model Context Pr
 - 🐳 **Docker-ready** - Single container, single `docker-compose up` command
 - ⚡ **Universal runtime** - Supports uvx, npx, and docker commands
 - 🛡️ **Safe defaults** - Always maintains at least one server (prevents crashes)
-- 🔐 **API Key authentication** - Secure your MCPO endpoints
+- 🔐 **Authentication** - Optional HTTP Basic Auth via Caddy + MCPO API key protection
 
 ## Quick Start
 
@@ -22,14 +22,14 @@ cp .env.example .env
 docker-compose up -d
 
 # 3. Access the UI
-open http://localhost:8501
+open http://localhost
 
 # 4. View MCPO API docs
 open http://localhost:8000/<server-name>/docs
 ```
 
 **What you get:**
-- UI: http://localhost:8501
+- UI: http://localhost (port 80)
 - MCPO API: http://localhost:8000
 - Default time server included (can be deleted/replaced)
 - Auto-restart on config changes
@@ -104,24 +104,30 @@ The UI supports three types of MCP servers:
 
 ## Architecture
 
-**Single container with two processes:**
-- **Streamlit UI** (port 8501) - Web interface for managing config
+**Single container with three processes:**
+- **Caddy** (port 80) - Reverse proxy with optional HTTP Basic Auth
+- **Streamlit UI** (localhost:8501) - Web interface for managing config
 - **MCPO Server** (port 8000) - Proxy exposing MCP servers as OpenAPI
 - **Built-in watcher** - Monitors `/config` directory, restarts MCPO on changes
 
 ```
-┌─────────────────────────────────┐
-│     Container (mcpo-ui)         │
-│                                 │
-│  ┌─────────┐      ┌──────────┐ │
-│  │ UI:8501 │──┬──>│ MCPO:8000│ │
-│  └─────────┘  │   └──────────┘ │
-│               │         ▲       │
-│               │         │       │
-│               ▼         │       │
-│         config.json ────┘       │
-│         (inotify watcher)       │
-└─────────────────────────────────┘
+┌─────────────────────────────────────┐
+│      Container (mcpo-ui)            │
+│                                     │
+│  ┌─────────┐     ┌─────────────┐   │
+│  │Caddy:80 │────>│Streamlit    │   │
+│  │(+auth)  │     │localhost:8501│  │
+│  └─────────┘     └──────┬──────┘   │
+│                         │           │
+│                         ▼           │
+│                   config.json       │
+│                         │           │
+│                         ▼           │
+│                  ┌──────────┐       │
+│                  │MCPO:8000 │       │
+│                  └──────────┘       │
+│                  (auto-restarts)    │
+└─────────────────────────────────────┘
 ```
 
 ## Running Multiple Instances
@@ -134,7 +140,7 @@ cd ../instance2
 # Create .env with different ports and container name
 cat > .env <<EOF
 CONTAINER_NAME=mcpo-ui-2
-UI_PORT=8502
+UI_PORT=8080
 MCPO_PORT=8001
 MCPO_API_KEY=different-api-key
 EOF
@@ -146,9 +152,39 @@ docker-compose up -d
 **Environment variables** (see `.env.example`):
 - `MCPO_API_KEY`: API key for MCPO authentication (**required**)
 - `CONTAINER_NAME`: Container name (default: mcpo-ui)
-- `UI_PORT`: Streamlit port (default: 8501)
+- `UI_PORT`: HTTP port for UI access (default: 80)
 - `MCPO_PORT`: MCPO API port (default: 8000)
 - `MCPO_BASE_URL`: Base URL for browser access (optional, for reverse proxy setups)
+- `UI_USERNAME`: HTTP Basic Auth username (optional)
+- `UI_PASSWORD_HASH`: HTTP Basic Auth password hash (optional)
+
+## Security
+
+**UI Authentication (Optional):**
+
+The UI includes Caddy reverse proxy with optional HTTP Basic Auth:
+
+```bash
+# 1. Generate password hash (automatically escaped for .env)
+docker run --rm caddy caddy hash-password --plaintext yourpassword | sed 's/\$/\$\$/g'
+
+# 2. Add to .env (use the escaped output from above)
+UI_USERNAME=admin
+UI_PASSWORD_HASH=$$2a$$14$$...
+
+# 3. Restart container
+docker-compose restart
+```
+
+Leave `UI_USERNAME` and `UI_PASSWORD_HASH` empty to disable authentication.
+
+**Alternative authentication options:**
+1. **Coolify** - Enable built-in HTTP Basic Auth in service settings (if using Coolify)
+2. **External Reverse Proxy** - Use nginx/Traefik with auth
+3. **VPN/Firewall** - Restrict network access to trusted IPs only
+
+**API Authentication:**
+MCPO endpoints are protected by `MCPO_API_KEY` - always set this in production!
 
 ## Troubleshooting
 
@@ -212,8 +248,9 @@ docker-compose up -d --build
 │   ├── app.py              # Main UI application
 │   ├── config.example.json # Default config template
 │   └── requirements.txt    # Python dependencies
-├── entrypoint.sh           # Container entrypoint (manages both processes)
-├── Dockerfile              # Single image with UI + MCPO + watcher
+├── Caddyfile               # Caddy reverse proxy config (HTTP Basic Auth)
+├── entrypoint.sh           # Container entrypoint (manages all processes)
+├── Dockerfile              # Single image with Caddy + UI + MCPO + watcher
 ├── docker-compose.yml      # Development setup
 ├── docker-compose.prod.yml # Production setup
 └── config/                 # Volume for config.json (auto-created)

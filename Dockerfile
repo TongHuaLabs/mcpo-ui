@@ -6,8 +6,17 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     curl \
     ca-certificates \
-    gnupg \
     inotify-tools \
+    debian-keyring \
+    debian-archive-keyring \
+    apt-transport-https \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Caddy
+RUN curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg \
+    && curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list \
+    && apt-get update \
+    && apt-get install -y caddy \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js (for npx)
@@ -37,6 +46,9 @@ RUN pip install --no-cache-dir mcpo
 COPY ui/app.py /app/app.py
 COPY ui/config.example.json /app/config.example.json
 
+# Copy Caddyfile
+COPY Caddyfile /app/Caddyfile
+
 # Copy entrypoint script
 COPY entrypoint.sh /app/entrypoint.sh
 RUN chmod +x /app/entrypoint.sh
@@ -44,8 +56,8 @@ RUN chmod +x /app/entrypoint.sh
 # Create config directory
 RUN mkdir -p /config
 
-# Expose ports (UI: 8501, MCPO: 8000)
-EXPOSE 8501 8000
+# Expose ports (HTTP: 80, MCPO: 8000)
+EXPOSE 80 8000
 
 # Use entrypoint script to run both services
 ENTRYPOINT ["/app/entrypoint.sh"]
