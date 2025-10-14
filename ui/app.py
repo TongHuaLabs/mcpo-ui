@@ -95,7 +95,7 @@ with col2:
     else:
         try:
             # Check if MCPO API is actually responding with valid data
-            response = requests.get("http://mcpo:8000/docs", timeout=1)
+            response = requests.get("http://localhost:8000/openapi.json", timeout=1)
             if response.status_code == 200 and len(response.content) > 100:
                 st.success("🟢 MCPO Online")
                 mcpo_online = True
