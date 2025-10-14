@@ -28,7 +28,9 @@ services:
     volumes:
       - ./config:/config
       - /var/run/docker.sock:/var/run/docker.sock  # Enable Docker commands
-    command: ["--config", "/config/config.json", "--port", "8000"]
+    environment:
+      - MCPO_API_KEY=${MCPO_API_KEY}
+    command: ["--api-key", "${MCPO_API_KEY}", "--config", "/config/config.json", "--port", "8000"]
     # Alternative: Use mcpo's built-in hot-reload (currently buggy - doesn't properly remove deleted servers)
     # command: ["--config", "/config/config.json", "--hot-reload", "--port", "8000"]
     # If using --hot-reload, comment out the watcher service below

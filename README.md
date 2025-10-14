@@ -30,10 +30,9 @@ open http://localhost:8000/<server-name>/docs
 - MCPO API: http://localhost:8000
 - Includes a default time server (can be deleted/replaced)
 
-**Customize ports (optional):**
+**Required setup:**
 ```bash
 cp .env.example .env
-# Edit UI_PORT and MCPO_PORT
 docker-compose up -d
 ```
 
@@ -143,9 +142,11 @@ docker-compose up -d
 ```
 
 **Environment variables** (see `.env.example`):
+- `MCPO_API_KEY`: API key for MCPO authentication (required)
 - `*_CONTAINER_NAME`: Container names (must be unique)
 - `UI_PORT`: Streamlit port (default: 8501)
 - `MCPO_PORT`: MCPO API port (default: 8000)
+- `MCPO_BASE_URL`: Base URL for browser access (optional)
 
 ## Troubleshooting
 
