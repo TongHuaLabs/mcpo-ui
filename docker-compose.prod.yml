@@ -1,5 +1,5 @@
 services:
-  mcpo:
+  mcpo-ui:
     image: ghcr.io/tonghualabs/mcpo-ui:latest
     container_name: ${CONTAINER_NAME:-mcpo-ui}
     restart: unless-stopped
@@ -22,7 +22,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-
-networks:
-  default:
-    name: mcpo-network

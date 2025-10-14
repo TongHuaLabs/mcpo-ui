@@ -1,5 +1,5 @@
 services:
-  mcpo:
+  mcpo-ui:
     build: .
     container_name: ${CONTAINER_NAME:-mcpo-ui}
     restart: unless-stopped
@@ -20,7 +20,3 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-
-networks:
-  default:
-    name: mcpo-network
