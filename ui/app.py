@@ -399,11 +399,15 @@ with tab2:
     with col3:
         if st.button("✨ Format JSON"):
             try:
-                formatted = json.dumps(json.loads(edited_json), indent=2)
-                st.session_state.json_editor = formatted
-                st.rerun()
-            except:
-                st.error("Cannot format invalid JSON")
+                parsed_config = json.loads(edited_json)
+                if "mcpServers" not in parsed_config:
+                    st.error("Config must contain 'mcpServers' key!")
+                else:
+                    save_config(parsed_config)
+                    st.success("✅ Formatted and saved!")
+                    st.rerun()
+            except json.JSONDecodeError as e:
+                st.error(f"Cannot format invalid JSON: {str(e)}")
 
 # Tab 3: Current Servers
 with tab3:

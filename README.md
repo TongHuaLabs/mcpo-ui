@@ -5,36 +5,34 @@ Web UI for managing [MCPO](https://github.com/open-webui/mcpo) (Model Context Pr
 ## Features
 
 - 🎨 **Dual input modes** - Form-based UI and JSON editor
-- 🔄 **Auto-reload** - Config changes automatically restart MCPO via watcher
-- 🐳 **Docker-ready** - Single `docker-compose up` command
+- 🔄 **Auto-reload** - Config changes automatically restart MCPO (built-in watcher)
+- 🐳 **Docker-ready** - Single container, single `docker-compose up` command
 - ⚡ **Universal runtime** - Supports uvx, npx, and docker commands
 - 🛡️ **Safe defaults** - Always maintains at least one server (prevents crashes)
-
-> **Note:** MCPO has a `--hot-reload` flag but it's currently buggy (doesn't properly remove deleted servers). This project uses a watcher container for reliable restarts instead. If the upstream bug is fixed, the watcher can be removed.
+- 🔐 **API Key authentication** - Secure your MCPO endpoints
 
 ## Quick Start
 
 ```bash
-# Start all services (UI, MCPO, watcher)
+# 1. Set up environment variables
+cp .env.example .env
+# Edit .env and set MCPO_API_KEY (required)
+
+# 2. Start the service
 docker-compose up -d
 
-# Access the UI
+# 3. Access the UI
 open http://localhost:8501
 
-# View MCPO API docs
+# 4. View MCPO API docs
 open http://localhost:8000/<server-name>/docs
 ```
 
-**Default setup:**
+**What you get:**
 - UI: http://localhost:8501
 - MCPO API: http://localhost:8000
-- Includes a default time server (can be deleted/replaced)
-
-**Required setup:**
-```bash
-cp .env.example .env
-docker-compose up -d
-```
+- Default time server included (can be deleted/replaced)
+- Auto-restart on config changes
 
 ## Server Types
 
@@ -106,20 +104,25 @@ The UI supports three types of MCP servers:
 
 ## Architecture
 
-```
-UI (8501) ──edit──> config.json <──read── MCPO (8000)
-                         │
-                      watch
-                         │
-                         ▼
-                    Watcher ──restart──> MCPO
-```
+**Single container with two processes:**
+- **Streamlit UI** (port 8501) - Web interface for managing config
+- **MCPO Server** (port 8000) - Proxy exposing MCP servers as OpenAPI
+- **Built-in watcher** - Monitors `/config` directory, restarts MCPO on changes
 
-**Components:**
-- **UI**: Streamlit web interface for managing config
-- **MCPO**: Proxy server exposing MCP servers as OpenAPI
-- **Watcher**: Monitors config.json, restarts MCPO on changes
-- **config.json**: Shared configuration file (./config/)
+```
+┌─────────────────────────────────┐
+│     Container (mcpo-ui)         │
+│                                 │
+│  ┌─────────┐      ┌──────────┐ │
+│  │ UI:8501 │──┬──>│ MCPO:8000│ │
+│  └─────────┘  │   └──────────┘ │
+│               │         ▲       │
+│               │         │       │
+│               ▼         │       │
+│         config.json ────┘       │
+│         (inotify watcher)       │
+└─────────────────────────────────┘
+```
 
 ## Running Multiple Instances
 
@@ -128,13 +131,12 @@ UI (8501) ──edit──> config.json <──read── MCPO (8000)
 cp -r . ../instance2
 cd ../instance2
 
-# Create .env with different ports and container names
+# Create .env with different ports and container name
 cat > .env <<EOF
-MCPO_CONTAINER_NAME=mcpo-server-2
-UI_CONTAINER_NAME=mcpo-ui-2
-WATCHER_CONTAINER_NAME=mcpo-watcher-2
+CONTAINER_NAME=mcpo-ui-2
 UI_PORT=8502
 MCPO_PORT=8001
+MCPO_API_KEY=different-api-key
 EOF
 
 # Start second instance
@@ -142,11 +144,11 @@ docker-compose up -d
 ```
 
 **Environment variables** (see `.env.example`):
-- `MCPO_API_KEY`: API key for MCPO authentication (required)
-- `*_CONTAINER_NAME`: Container names (must be unique)
+- `MCPO_API_KEY`: API key for MCPO authentication (**required**)
+- `CONTAINER_NAME`: Container name (default: mcpo-ui)
 - `UI_PORT`: Streamlit port (default: 8501)
 - `MCPO_PORT`: MCPO API port (default: 8000)
-- `MCPO_BASE_URL`: Base URL for browser access (optional)
+- `MCPO_BASE_URL`: Base URL for browser access (optional, for reverse proxy setups)
 
 ## Troubleshooting
 
@@ -206,11 +208,29 @@ docker-compose up -d --build
 
 **Project Structure:**
 ```
-├── ui/                  # Streamlit UI + entrypoint
-├── mcpo/                # Custom MCPO with uvx/npx/docker
-├── watcher/             # Config file monitor
-├── config/              # Shared config.json (volume)
-└── docker-compose.yml   # Orchestration
+├── ui/                     # Streamlit UI source files
+│   ├── app.py              # Main UI application
+│   ├── config.example.json # Default config template
+│   └── requirements.txt    # Python dependencies
+├── entrypoint.sh           # Container entrypoint (manages both processes)
+├── Dockerfile              # Single image with UI + MCPO + watcher
+├── docker-compose.yml      # Development setup
+├── docker-compose.prod.yml # Production setup
+└── config/                 # Volume for config.json (auto-created)
 ```
 
-Built with [Streamlit](https://streamlit.io/) and [MCPO](https://github.com/open-webui/mcpo) • [MIT License](LICENSE)
+## Production Deployment
+
+Use the pre-built image from GitHub Container Registry:
+
+```bash
+# Using docker-compose.prod.yml
+docker compose -f docker-compose.prod.yml pull
+docker compose -f docker-compose.prod.yml up -d
+```
+
+**Image:** `ghcr.io/tonghualabs/mcpo-ui:latest`
+
+---
+
+Built with [Streamlit](https://streamlit.io/) and [MCPO](https://github.com/open-webui/mcpo)
