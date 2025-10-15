@@ -1,6 +1,9 @@
 # Config files
 config/
 
+# Draft configs
+tmp/
+
 # Environment
 .env
 

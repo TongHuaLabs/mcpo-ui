@@ -8,6 +8,7 @@ services:
       - "${MCPO_PORT:-8000}:8000"
     volumes:
       - ./config:/config
+      - ./tmp:/tmp  # Persist draft configs
       - /var/run/docker.sock:/var/run/docker.sock  # For Docker-based MCP servers
     environment:
       - MCPO_API_KEY=${MCPO_API_KEY}

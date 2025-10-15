@@ -1,12 +1,14 @@
 import streamlit as st
 import json
 import os
+import hashlib
 from pathlib import Path
 from streamlit_ace import st_ace
 
 # Configuration
 CONFIG_FILE = "/config/config.json"
 EXAMPLE_CONFIG_FILE = "/app/config.example.json"
+TEMP_CONFIG_FILE = "/tmp/config.draft.json"
 # Base URL for browser access to MCPO (defaults to http://localhost:MCPO_PORT)
 MCPO_BASE_URL = os.getenv("MCPO_BASE_URL", "").rstrip("/") or f"http://localhost:{os.getenv('MCPO_PORT', '8000')}"
 
@@ -15,6 +17,12 @@ st.set_page_config(
     page_icon="⚡",
     layout="wide"
 )
+
+def get_config_hash(config):
+    """Get hash of config content"""
+    config_str = json.dumps(config, sort_keys=True)
+    return hashlib.md5(config_str.encode()).hexdigest()
+
 
 def load_example_config():
     """Load the example config with default time server"""
@@ -57,73 +65,155 @@ def save_config(config):
         json.dump(config, f, indent=2)
     return True
 
-def delete_server(config, server_name):
-    """Delete a server from config"""
-    if server_name in config["mcpServers"]:
-        del config["mcpServers"][server_name]
-        save_config(config)
+def load_temp_config():
+    """Load config from temp file if exists"""
+    try:
+        if os.path.exists(TEMP_CONFIG_FILE):
+            with open(TEMP_CONFIG_FILE, 'r') as f:
+                return json.load(f)
+    except:
+        pass
+    return None
+
+def save_temp_config(config):
+    """Save config to temp file (outside /config, won't trigger inotify)"""
+    os.makedirs(os.path.dirname(TEMP_CONFIG_FILE), exist_ok=True)
+    with open(TEMP_CONFIG_FILE, 'w') as f:
+        json.dump(config, f, indent=2)
+
+def get_working_config():
+    """Get config from temp file or load from actual config"""
+    temp = load_temp_config()
+    if temp:
+        return temp
+    return load_config()
+
+def update_working_config(config):
+    """Update working config in temp file (won't trigger MCPO restart)"""
+    save_temp_config(config)
+
+def has_draft_changes():
+    """Check if temp config exists and differs from deployed config"""
+    if not os.path.exists(TEMP_CONFIG_FILE):
+        return False
+
+    temp = load_temp_config()
+    actual = load_config()
+    return get_config_hash(temp) != get_config_hash(actual)
+
+def deploy_config():
+    """Deploy temp config to /config/config.json (triggers inotify → MCPO restart)"""
+    if os.path.exists(TEMP_CONFIG_FILE):
+        temp = load_temp_config()
+        save_config(temp)
+        # Remove temp file after deploying
+        os.remove(TEMP_CONFIG_FILE)
         return True
     return False
 
+def restart_mcpo():
+    """Restart MCPO by touching config file (triggers inotify)"""
+    config_path = "/config/config.json"
+    if os.path.exists(config_path):
+        os.utime(config_path, None)
+        return True
+    return False
+
+def discard_working_config():
+    """Discard temp config"""
+    if os.path.exists(TEMP_CONFIG_FILE):
+        os.remove(TEMP_CONFIG_FILE)
+
 st.title("⚡ MCPO Configuration Manager")
 
-# MCPO Status Indicator and Manual Restart
-col1, col2, col3 = st.columns([3, 1, 0.5])
-with col1:
-    st.markdown("Configure your MCP servers with ease. Changes are saved automatically and mcpo restarts on config changes.")
-with col2:
-    # Check if MCPO is reachable and responding properly
-    import requests
-    import time
-    import os
+# Load working config (may have unsaved changes)
+config = get_working_config()
 
-    mcpo_online = False
+# Check various states
+deploying = st.session_state.get("deploying", False)
+has_draft = has_draft_changes()
 
-    # Check if config was recently modified (within last 5 seconds)
-    config_path = "/config/config.json"
-    recently_modified = False
-    if os.path.exists(config_path):
-        mtime = os.path.getmtime(config_path)
-        time_since_modify = time.time() - mtime
-        recently_modified = time_since_modify < 5
+# Header
+st.markdown("Configure your MCP servers with ease.")
 
-    if recently_modified:
-        st.warning("🟡 Restarting...")
-        st.caption("Config changed")
-        time.sleep(1)
+# MCPO Status and Action Buttons
+import requests
+import time
+import os
+
+mcpo_online = False
+config_path = "/config/config.json"
+
+# Priority: has_draft > deploying > normal status
+if has_draft:
+    col1, col2 = st.columns([0.3, 0.7])
+    with col1:
+        st.warning("⚠️ Draft changes")
+    with col2:
+        pass
+    col_deploy, col_discard, col_spacer = st.columns([1, 1, 3])
+    with col_deploy:
+        if st.button("🚀 Deploy", help="Deploy changes to MCPO (will restart)", type="primary", use_container_width=True):
+            deploy_config()
+            st.session_state["deploying"] = True
+            st.session_state["deploy_time"] = time.time()
+            st.rerun()
+    with col_discard:
+        if st.button("↩️ Discard", help="Discard draft changes", use_container_width=True):
+            discard_working_config()
+            st.rerun()
+elif deploying:
+    # Wait at least 10 seconds after deploy before checking status (give inotify time to restart MCPO)
+    deploy_time = st.session_state.get("deploy_time", 0)
+    time_since_deploy = time.time() - deploy_time
+
+    if time_since_deploy < 10:
+        st.warning("🟡 Deploying...", icon="⏳")
+        time.sleep(3)
         st.rerun()
     else:
+        # Check if MCPO is online
         try:
-            # Check if MCPO API is actually responding with valid data
-            response = requests.get("http://localhost:8000/openapi.json", timeout=1)
-            if response.status_code == 200 and len(response.content) > 100:
+            response = requests.get("http://localhost:8000/openapi.json", timeout=3)
+            if response.status_code == 200 and "openapi" in response.text:
                 st.success("🟢 MCPO Online")
+                st.session_state["deploying"] = False
+                st.session_state.pop("deploy_time", None)
                 mcpo_online = True
             else:
-                st.warning("🟡 MCPO Starting...")
-                time.sleep(1)
+                st.warning("🟡 Starting...", icon="⏳")
+                time.sleep(3)
                 st.rerun()
         except:
-            st.error("🔴 MCPO Offline")
-            st.caption("Restarting...")
-            time.sleep(1)
+            st.warning("🟡 Starting...", icon="⏳")
+            time.sleep(3)
             st.rerun()
-
-with col3:
-    # Manual restart button
-    if st.button("🔄", help="Manually restart MCPO"):
-        try:
-            # Touch the config file to trigger the watcher
-            if os.path.exists(config_path):
-                os.utime(config_path, None)
+else:
+    # Check status
+    try:
+        response = requests.get("http://localhost:8000/openapi.json", timeout=3)
+        if response.status_code == 200 and "openapi" in response.text:
+            col1, col2 = st.columns([0.3, 0.7])
+            with col1:
+                st.success("🟢 MCPO Online")
+            with col2:
+                pass
+            mcpo_online = True
+            if st.button("🔄 Restart", help="Restart MCPO server"):
+                restart_mcpo()
+                st.session_state["deploying"] = True
+                st.session_state["deploy_time"] = time.time()
                 st.rerun()
-        except Exception as e:
-            st.error(f"Failed to restart: {e}")
+        else:
+            st.warning("🟡 Connecting...", icon="⏳")
+            time.sleep(3)
+            st.rerun()
+    except Exception as e:
+        st.warning("🟡 Connecting...", icon="⏳")
+        time.sleep(3)
+        st.rerun()
 
 st.divider()
-
-# Load current config
-config = load_config()
 
 # Tabs for different input modes
 tab1, tab2, tab3 = st.tabs(["📝 Form Input", "📄 JSON Editor", "📋 Current Servers"])
@@ -322,12 +412,11 @@ with tab1:
 
                     if new_server:
                         config["mcpServers"][server_name] = new_server
-                        save_config(config)
+                        update_working_config(config)
                         # Clear preset after successful save
                         if "preset" in st.session_state:
                             del st.session_state.preset
-                        st.success(f"✅ Server '{server_name}' added successfully! Check the 'Current Servers' tab.")
-                        st.balloons()
+                        st.success(f"✅ Server '{server_name}' added! (Unsaved)")
                         st.rerun()
 
                 except json.JSONDecodeError as e:
@@ -340,9 +429,8 @@ with tab2:
     st.header("Direct JSON Editor")
     st.markdown("Edit the entire configuration as JSON with syntax highlighting and validation.")
 
-    # Reload config fresh from file to ensure we have latest
-    fresh_config = load_config()
-    json_str = json.dumps(fresh_config, indent=2)
+    # Use working config (may have unsaved changes)
+    json_str = json.dumps(config, indent=2)
 
     # Use Ace editor for better JSON editing experience
     # Use hash of config as key to force refresh when config changes
@@ -378,19 +466,19 @@ with tab2:
 
     col1, col2, col3 = st.columns([1, 1, 4])
     with col1:
-        if st.button("💾 Save", type="primary"):
+        if st.button("💾 Apply Changes", type="primary"):
             try:
                 new_config = json.loads(edited_json)
                 if "mcpServers" not in new_config:
                     st.error("Config must contain 'mcpServers' key!")
                 else:
-                    save_config(new_config)
-                    st.success("✅ Configuration saved successfully!")
+                    update_working_config(new_config)
+                    st.success("✅ Changes applied! (Unsaved)")
                     st.rerun()
             except json.JSONDecodeError as e:
                 st.error(f"Invalid JSON: {str(e)}")
             except Exception as e:
-                st.error(f"Error saving: {str(e)}")
+                st.error(f"Error applying: {str(e)}")
 
     with col2:
         if st.button("🔄 Reload"):
@@ -403,8 +491,8 @@ with tab2:
                 if "mcpServers" not in parsed_config:
                     st.error("Config must contain 'mcpServers' key!")
                 else:
-                    save_config(parsed_config)
-                    st.success("✅ Formatted and saved!")
+                    update_working_config(parsed_config)
+                    st.success("✅ Formatted and applied!")
                     st.rerun()
             except json.JSONDecodeError as e:
                 st.error(f"Cannot format invalid JSON: {str(e)}")
@@ -413,16 +501,14 @@ with tab2:
 with tab3:
     st.header("Current MCP Servers")
 
-    # Reload config fresh from file to ensure we have latest
-    current_config = load_config()
-
-    if not current_config["mcpServers"]:
+    # Use working config (may have unsaved changes)
+    if not config["mcpServers"]:
         st.info("No servers configured yet. Add one using the Form Input or JSON Editor tabs.")
     else:
-        st.markdown(f"**Total Servers:** {len(current_config['mcpServers'])}")
+        st.markdown(f"**Total Servers:** {len(config['mcpServers'])}")
         st.divider()
 
-        for idx, (name, server_config) in enumerate(current_config["mcpServers"].items()):
+        for idx, (name, server_config) in enumerate(config["mcpServers"].items()):
             with st.expander(f"🔧 {name}", expanded=False):
                 # Endpoints section
                 st.subheader("📡 Endpoints")
@@ -453,8 +539,10 @@ with tab3:
                 with col2:
                     st.subheader("Actions")
                     if st.button("🗑️ Delete", key=f"delete_{name}"):
-                        if delete_server(current_config, name):
-                            st.success(f"Deleted '{name}'. MCPO will restart automatically.")
+                        if name in config["mcpServers"]:
+                            del config["mcpServers"][name]
+                            update_working_config(config)
+                            st.success(f"Deleted '{name}' (Unsaved)")
                             st.rerun()
                         else:
                             st.error(f"Failed to delete '{name}'")
